@@ -1,0 +1,844 @@
+
+
+
+library(R.utils)
+library(Seurat)
+
+rds_file <- "/Users/R/GSE216136/GSE216136_E7.5_KOvWT_RNA.rds.gz"
+
+# Uncompress to a temporary file
+tmp_file <- tempfile(fileext = ".rds")
+gunzip(rds_file, destname = tmp_file, overwrite = TRUE, remove = FALSE)
+
+# Load the RDS
+obj <- readRDS(tmp_file)
+
+# Update to current Seurat object structure
+obj <- UpdateSeuratObject(obj)
+
+# Inspect object
+obj
+head(obj@meta.data)
+
+
+
+
+
+
+
+library(Seurat)
+library(ggplot2)
+
+library(Seurat)
+library(ggplot2)
+library(R.utils)
+
+# 1. List your files and stages
+base_path <- "/Users/R/GSE216136/"
+files <- list.files(base_path, pattern = "\\.rds\\.gz$", full.names = TRUE)
+
+# Optional: map files to stages
+stages <- c("E7.5", "E8.25", "E8.5", "E9.5")
+
+# 2. Loop through stages
+for (stage in stages) {
+  
+  # Find the file for this stage
+  file_stage <- files[grepl(stage, files)]
+  
+  if(length(file_stage) == 0) next  # skip if stage not found
+  
+  # Uncompress and load
+  tmp_file <- tempfile(fileext = ".rds")
+  gunzip(file_stage, destname = tmp_file, overwrite = TRUE, remove = FALSE)
+  obj <- readRDS(tmp_file)
+  
+  # Update Seurat object if needed
+  obj <- UpdateSeuratObject(obj)
+  
+  # Plot UMAP colored by genotype
+  p <- DimPlot(obj, group.by = "KO", pt.size = 1) +
+       ggtitle(paste("UMAP colored by genotype -", stage))
+  
+  print(p)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# Load libraries
+# ============================================================
+library(Seurat)
+library(R.utils)
+library(org.Mm.eg.db)
+library(AnnotationDbi)
+library(patchwork)
+library(ggplot2)
+
+# ============================================================
+# 1. Set base folder containing .rds.gz files
+# ============================================================
+base_path <- "/Users/R/GSE216136/"
+
+# Find all .rds.gz files
+files <- list.files(base_path, pattern = "\\.rds\\.gz$", full.names = TRUE)
+
+# Extract stages from filenames
+# Example expected filename: GSE216136_E7.5_KOvWT_RNA.rds.gz
+stages <- sub("GSE216136_(E[0-9\\.]+)_.*", "\\1", basename(files))
+
+# ============================================================
+# 2. Load + update function. 
+# This function takes a .rds.gz file (a gzipped Seurat object), unzips it, loads it, updates it to the current Seurat version, and then adds metadata fields (stage and genotype). 
+# Then it returns the updated Seurat object.
+# ============================================================
+load_and_update <- function(file, stage) {
+  
+  message("Loading ", stage, " → ", basename(file))
+  
+  tmp <- tempfile(fileext = ".rds")
+  R.utils::gunzip(file, destname = tmp, overwrite = TRUE, remove = FALSE)
+  
+  obj <- readRDS(tmp)
+  unlink(tmp)
+  
+  obj <- UpdateSeuratObject(obj)
+  
+  obj$stage <- stage
+  obj$genotype <- "KOvWT"
+  
+  return(obj)
+}
+
+# Load all objects
+objs <- mapply(load_and_update, files, stages, SIMPLIFY = FALSE)
+names(objs) <- stages
+
+
+# ============================================================
+# 3. Define tubulin gene set
+# ============================================================
+tubb_genes <- c("Tubb1","Tubb2a","Tubb2b","Tubb3","Tubb4a","Tubb5","Tubb6")
+
+
+
+tuba_genes <- c("Tuba1a","Tuba1b","Tuba1c","Tuba3a","Tuba3b", "Tuba4a", "Tuba8")
+
+
+# ============================================================
+# 4. Get microtubule cytoskeleton GO genes (GO:0005874)
+# ============================================================
+go_mt <- AnnotationDbi::select(
+  org.Mm.eg.db,
+  keys = "GO:0005874",
+  columns = c("SYMBOL", "GOALL"),
+  keytype = "GOALL"
+)
+
+go_mt_genes <- unique(go_mt$SYMBOL)
+cat("Total MT cytoskeleton genes:", length(go_mt_genes), "\n")
+
+
+
+
+
+
+# ============================================================
+# 4. Compute GLOBAL min/max across all stages for TUBB genes
+# ============================================================
+
+all_values <- c()
+
+for (stage in names(objs)) {
+  obj <- objs[[stage]]
+  
+  present <- tubb_genes[tubb_genes %in% rownames(obj[["RNA"]])]
+  if (length(present) == 0) next
+  
+  vals <- FetchData(obj, vars = present)
+  vals_num <- as.numeric(as.matrix(vals))  # FIX
+  
+  all_values <- c(all_values, vals_num)
+}
+
+global_min <- quantile(all_values, 0.10, na.rm = TRUE)
+global_max <- quantile(all_values, 0.90, na.rm = TRUE)
+
+
+# ============================================================
+# 5B. Plot TUBB genes — GLOBAL color scale
+# ============================================================
+for (stage in names(objs)) {
+  obj <- objs[[stage]]
+  message("Plotting TUBB genes for ", stage)
+  
+  present <- tubb_genes[tubb_genes %in% rownames(obj[["RNA"]])]
+  if (length(present) == 0) next
+  
+  plots <- FeaturePlot(
+    obj,
+    features = present,
+    reduction = "umap",
+    min.cutoff = global_min,
+    max.cutoff = global_max,
+    combine = FALSE
+  )
+  
+  print(
+    wrap_plots(plots) +
+      plot_annotation(title = paste("TUBB Family Expression —", stage))
+  )
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# 4. Compute GLOBAL min/max for all TUBA genes across all stages
+# ============================================================
+
+all_values <- c()
+
+for (stage in names(objs)) {
+  obj <- objs[[stage]]
+  
+  present <- tuba_genes[tuba_genes %in% rownames(obj[["RNA"]])]
+  if (length(present) == 0) next
+  
+  vals <- FetchData(obj, vars = present)
+  
+  # --- FIX: ensure numeric (avoid "list cannot be coerced" error) ---
+  vals_num <- as.numeric(as.matrix(vals))
+  
+  all_values <- c(all_values, vals_num)
+}
+
+global_min <- quantile(all_values, 0.10, na.rm = TRUE)
+global_max <- quantile(all_values, 0.90, na.rm = TRUE)
+
+
+
+# ============================================================
+# 5. Global-scale plotting
+# ============================================================
+for (stage in names(objs)) {
+  obj <- objs[[stage]]
+  message("Plotting TUBA genes for ", stage)
+  
+  present <- tuba_genes[tuba_genes %in% rownames(obj[["RNA"]])]
+  if (length(present) == 0) next
+  
+  plots <- FeaturePlot(
+    obj,
+    features = present,
+    reduction = "umap",
+    min.cutoff = global_min,
+    max.cutoff = global_max,
+    combine = FALSE
+  )
+  
+  print(
+    wrap_plots(plots) +
+      plot_annotation(title = paste("TUBA Family Expression —", stage))
+  )
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# 6. Plot MT GO genes (top 16) for each stage
+# ============================================================
+for (stage in names(objs)) {
+  
+  obj <- objs[[stage]]
+  message("Plotting GO:0005874 MT genes for ", stage)
+  
+  mt_present <- go_mt_genes[go_mt_genes %in% rownames(obj[["RNA"]])]
+  
+  if (length(mt_present) == 0) {
+    message("No MT GO genes in ", stage)
+    next
+  }
+  
+  mt_to_plot <- head(mt_present, 16)
+  
+  plots <- FeaturePlot(
+    obj,
+    features = mt_to_plot,
+    reduction = "umap",
+    min.cutoff = "q10",
+    max.cutoff = "q90",
+    combine = FALSE
+  )
+  
+  print(
+    wrap_plots(plots) +
+      plot_annotation(title = paste("Microtubule Cytoskeleton (GO:0005874) —", stage))
+  )
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+mt_pathways <- list(
+  "GO:0005874_Microtubule" = c(
+    "Abraxas2", "Akna", "Apc", "Apc2", "Apoe", "Appbp2", "Arfgef2", "Arhgap4",
+    "Arhgap18", "Arhgef2", "Arl3", "Arl6", "Aspm", "Atat1", "Aurka", "Aurkb",
+    "Aurkc", "Bag2", "Baiap2", "Bbln", "Bcas3", "Bcl2l11", "Bcl10", "Bex4",
+    "Bex6", "Bicd1", "Bin1", "Birc5", "Bod1", "Bysl", "Calm1", "Calm2", "Calm3",
+    "Camsap1", "Camsap2", "Camsap3", "Capn6", "Casp1", "Ccdc57", "Ccdc66",
+    "Ccdc181", "Ccsap", "Cct2", "Cct3", "Cct4", "Cct5", "Cct6a", "Cct7", "Cct8",
+    "Cdk1", "Cdk2ap2", "Cdk5", "Cdk5rap2", "Cdk5rap3", "Cenpe", "Cep57", "Cep57l1",
+    "Cep162", "Cep170", "Cep170b", "Cep295", "Cfap20", "Cfap45", "Cfap52",
+    "Cfap53", "Cfap68", "Cfap77", "Cfap90", "Cfap95", "Cfap96", "Cfap107",
+    "Cfap126", "Cfap141", "Cfap144", "Cfap161", "Cfap206", "Cfap210", "Cfap276",
+    "Chmp1a", "Chmp1b", "Chmp1b2", "Chmp2a", "Chmp2b", "Chmp3", "Chmp4b",
+    "Chmp4c", "Chmp5", "Chmp6", "Chmp7", "Cimap1d", "Cimip2a", "Cimip2b",
+    "Cimip2c", "Ckap2", "Ckap5", "Clasp1", "Clasp2", "Clip1", "Clip2", "Clip3",
+    "Clip4", "Clmp", "Cltc", "Cnp", "Cpap", "Crhbp", "Csnk1d", "Cspp1", "Cstpp1",
+    "Cul3", "Cyld", "Cyp2a4", "Cyp2a5", "Cyp2a12", "Cyp2a22", "Daxx", "Dcdc2a",
+    "Dcdc2b", "Dcdc2c", "Dctn1", "Dctn2", "Dctn3", "Dcx", "Dcxr", "Disc1", "Dlg1",
+    "Dnah1", "Dnah2", "Dnah3", "Dnah5", "Dnah8", "Dnah12", "Dnah17", "Dnai1",
+    "Dnai2", "Dnai7", "Dnal1", "Dnal4", "Dnm1", "Dnm1l", "Dnm2", "Dnm3", "Dpp9",
+    "Dpysl2", "Drd4", "Dst", "Dusp21", "Dvl1", "Dync1h1", "Dync1i1", "Dync1i2",
+    "Dync1li1", "Dync1li2", "Dync2h1", "Dync2li1", "Dynll1", "Dynll2", "Dynlrb1",
+    "Dynlrb2", "Dynlt1b", "Dynlt2a1", "Dynlt3", "Dyrk1a", "Dysf", "Efcab6", "Efhb",
+    "Efhc1", "Efhc2", "Eif3a", "Emd", "Eml1", "Eml2", "Eml3", "Eml4", "Eml5",
+    "Eml6", "Enkd1", "Enkur", "Fam110a", "Fam110c", "Fam161a", "Fam161b", "Fbxw11",
+    "Fez1", "Fgf13", "Fhdc1", "Fign", "Fkbp4", "Fsd1", "Gabarap", "Gabarapl1",
+    "Gas2l1", "Gas2l2", "Gas2l3", "Gas8", "Golga2", "Gramd2b", "Grip1", "Gsk3a",
+    "Gsk3b", "Gtse1", "Haus1", "Haus2", "Haus3", "Haus4", "Haus5", "Haus6", "Haus7",
+    "Haus8", "Hdac6", "Hid1", "Hnrnpu", "Hook1", "Hook2", "Hook3", "Hspa8", "Hsph1",
+    "Ift70a1", "Ift70a2", "Ift70b", "Igbp1", "Incenp", "Ino80", "Invs", "Iqgap1",
+    "Iqgap2", "Jakmip1", "Kansl1", "Kansl3", "Katna1", "Katnal1", "Katnal2", "Katnb1",
+    "Kcnab2", "Keg1", "Kif1a", "Kif1b", "Kif1c", "Kif2a", "Kif2b", "Kif2c", "Kif3a",
+    "Kif3b", "Kif3c", "Kif4", "Kif5a", "Kif5b", "Kif5c", "Kif6", "Kif7", "Kif9",
+    "Kif11", "Kif12", "Kif13a", "Kif13b", "Kif14", "Kif15", "Kif16b", "Kif17", 
+    "Kif18a", "Kif18b", "Kif19a", "Kif19b", "Kif20a", "Kif20b", "Kif21a", "Kif21b",
+    "Kif22", "Kif23", "Kif24", "Kif26a", "Kif26b", "Kif27", "Kif28", "Kifap3",
+    "Kifc1", "Kifc2", "Kifc3", "Kifc5b", "Klc1", "Klc2", "Klc3", "Klc4", "Klhl21",
+    "Klhl22", "Knstrn", "Kntc1", "Lrpprc", "Lrrc49", "Luzp1", "Lzts2", "Macf1",
+    "Map1a", "Map1b", "Map1lc3a", "Map1lc3b", "Map1s", "Map2", "Map2k1", "Map2k2",
+    "Map3k11", "Map4", "Map6", "Map6d1", "Map7", "Map7d2", "Map9", "Map10", "Mapre1",
+    "Mapre2", "Mapre3", "Mapt", "Marcks", "Matcap1", "Mdm1", "Mefv", "Mid1", "Mid1ip1",
+    "Mid2", "Misp", "Mns1", "Mt3", "Mta1", "Mtcl1", "Mtcl2", "Mtus2", "Mx2", "Nav1",
+    "Nav3", "Nckap5", "Nckap5l", "Nde1", "Ndel1", "Ndrg1", "Nek2", "Nicn1", "Nin",
+    "Ninl", "Nme7", "Nudc", "Numa1", "Nusap1", "Odf2", "Opa1", "Pacrg", "Pafah1b1",
+    "Parp4", "Pbxip1", "Pcnt", "Pde4dip", "Pierce1", "Pierce2", "Plk1", "Polb",
+    "Prc1", "Psrc1", "Ptpn20", "Pycard", "Rab3d", "Rab11a", "Radil", "Rassf1",
+    "Rassf3", "Rassf5", "Rcc2", "Reep1", "Reep2", "Reep3", "Reep4", "Rgs14", "Ribc1",
+    "Ribc2", "Rmdn1", "Rmdn2", "Rmdn3", "Rnf4", "Ror2", "Rpgrip1l", "Rusc1",
+    "Saa1", "Saa2", "Saa3", "Sarm1", "Saxo1", "Saxo2", "Saxo4", "Sctr", "Selenos",
+    "Septin2", "Septin9", "Serp1", "Shroom1", "Shroom2", "Shroom3", "Shtn1", "Sirt2",
+    "Ska1", "Ska2", "Ska3", "Slain1", "Slain2", "Slc8a1", "Slc8a2", "Slc8a3",
+    "Snph", "Sntb2", "Spaca9", "Spag4", "Spag5", "Spag8", "Spag17", "Spast", "Spef1",
+    "Spmip5", "Spmip6", "Spmip8", "Spmip9", "Spmip10", "Spmip11", "Spry2", "Srprb",
+    "Stau2", "Stim1", "Stmn1", "Svil", "Sybu", "Synj1", "Synj2", "Tbca", "Tbcb",
+    "Tcp1", "Tcp11l1", "Tekt1", "Tekt2", "Tekt3", "Tekt4", "Tekt5", "Tektip1",
+    "Tektl1", "Tiam1", "Tmem214", "Togaram1", "Togaram2", "Tpgs1", "Tpgs2",
+    "Tppp", "Tppp2", "Tppp3", "Tpt1", "Tpx2", "Trim54", "Trip10", "Trpv4", "Ttl",
+    "Ttll1", "Ttll3", "Ttll4", "Ttll5", "Ttll6", "Ttll7", "Ttll8", "Ttll9", "Ttll10",
+    "Ttll11", "Ttll13", "Tuba1a", "Tuba1b", "Tuba1c", "Tuba3a", "Tuba4a", "Tuba8",
+    "Tubal3", "Tubb1", "Tubb2a", "Tubb3", "Tubb4a", "Tubb4b", "Tubb5", "Tubb6",
+    "Tubd1", "Tube1", "Tubg1", "Tubg2", "Tubgcp2", "Tubgcp3", "Tubgcp4", "Tubgcp5",
+    "Tubgcp6", "Wdr44", "Wdr47", "Wdr90", "Whamm", "Zfp207", "Zfp804a", "Zw10"
+  ),
+  
+  "GO:0005881_cytoplasmic_microtubule" = c(
+    "Apc", "Apc2", "Arfgef2", "Arhgap18", "Arl3", "Arl6", "Bcas3", "Bcl10",
+    "Bicd1", "Birc5", "Bysl", "Ccsap", "Cep162", "Cfap20", "Cfap45", "Cfap52",
+    "Cfap53", "Cfap68", "Cfap77", "Cfap90", "Cfap95", "Cfap96", "Cfap107",
+    "Cfap126", "Cfap141", "Cfap144", "Cfap161", "Cfap206", "Cfap210", "Cfap276",
+    "Cimap1d", "Cimip2a", "Cimip2b", "Cimip2c", "Clasp1", "Clasp2", "Clip1",
+    "Clip2", "Clmp", "Cltc", "Cyld", "Cyp2a4", "Cyp2a5", "Cyp2a12", "Cyp2a22",
+    "Dcxr", "Dnai7", "Dusp21", "Dync1h1", "Dynlt3", "Efcab6", "Efhb", "Efhc1",
+    "Efhc2", "Enkd1", "Enkur", "Fam161a", "Fam161b", "Fbxw11", "Fhdc1", "Gramd2b",
+    "Gtse1", "Hid1", "Ift70a1", "Ift70a2", "Ift70b", "Kif2c", "Kif18a", "Kif18b",
+    "Map9", "Map10", "Mapre1", "Mapre2", "Mapre3", "Mid1", "Misp", "Mns1", "Mtus2",
+    "Nin", "Nme7", "Numa1", "Pacrg", "Pafah1b1", "Pde4dip", "Pierce1", "Pierce2",
+    "Rab3d", "Reep1", "Reep2", "Reep3", "Reep4", "Ribc1", "Ribc2", "Rpgrip1l",
+    "Saa1", "Saa2", "Saa3", "Saxo1", "Saxo2", "Saxo4", "Sctr", "Selenos", "Serp1",
+    "Snph", "Spaca9", "Spag8", "Spmip5", "Spmip6", "Spmip8", "Spmip9", "Spmip10",
+    "Spmip11", "Srprb", "Sybu", "Synj2", "Tekt1", "Tekt2", "Tekt3", "Tekt4",
+    "Tekt5", "Tektip1", "Tektl1", "Tmem214", "Togaram1", "Togaram2", "Tpt1",
+    "Trpv4", "Tuba1a", "Tuba1b", "Tuba1c", "Tubb4b", "Tubg1", "Tubg2"
+  ),
+  
+  "GO:1990752_microtubule_end" = c(
+    "Abraxas2", "Aspm", "Camsap1", "Camsap2", "Camsap3", "Cdk5rap2", "Ckap5",
+    "Clasp2", "Clip1", "Clip2", "Clip3", "Clip4", "Dctn1", "Dst", "Gas2l1",
+    "Gas2l2", "Kif2c", "Kif3c", "Kif18b", "Knstrn", "Mapre1", "Mapre2", "Mapre3",
+    "Misp", "Nav3", "Nckap5", "Nckap5l", "Numa1", "Pde4dip", "Rnf4", "Slain1",
+    "Slain2", "Spag5", "Spry2", "Svil", "Tbcb"
+  ),
+  
+  "GO:0005876_spindle_microtubules" = c(
+    "Arl3", "Aurka", "Aurkb", "Aurkc", "Bbln", "Birc5", "Bod1", "Calm1", "Calm2",
+    "Calm3", "Capn6", "Ccdc57", "Ccsap", "Cdk1", "Cenpe", "Cep295", "Chmp1a",
+    "Chmp1b", "Chmp1b2", "Chmp2a", "Chmp2b", "Chmp3", "Chmp4b", "Chmp4c", "Chmp5",
+    "Chmp6", "Chmp7", "Clasp1", "Clasp2", "Cltc", "Csnk1d", "Cul3", "Dynlt3",
+    "Eml3", "Fam110a", "Fam161a", "Haus1", "Haus2", "Haus3", "Haus4", "Haus5",
+    "Haus6", "Haus7", "Haus8", "Hnrnpu", "Kif2a", "Kif3a", "Kif11", "Kif18a",
+    "Kif18b", "Kifap3", "Klhl21", "Klhl22", "Kntc1", "Map1s", "Map9", "Mapre1",
+    "Mapre3", "Misp", "Mtcl1", "Numa1", "Pafah1b1", "Parp4", "Plk1", "Polb",
+    "Psrc1", "Rab11a", "Rmdn1", "Rmdn2", "Rmdn3", "Septin2", "Ska1", "Ska2",
+    "Ska3", "Ttl", "Tubg1", "Tubg2", "Tubgcp3", "Zw10"
+  )
+)
+
+
+
+library(Seurat)
+library(patchwork)
+
+# Collect all module scores across stages to set global min/max
+all_values <- c()
+
+for (stage in names(objs)) {
+  obj <- objs[[stage]]
+  
+  for (pathway_name in names(mt_pathways)) {
+    present <- mt_pathways[[pathway_name]]
+    present <- present[present %in% rownames(obj[["RNA"]])]
+    if (length(present) == 0) next
+    
+    vals <- FetchData(obj, vars = present)
+    vals_num <- as.numeric(as.matrix(vals))
+    
+    all_values <- c(all_values, vals_num)
+  }
+}
+
+global_min <- quantile(all_values, 0.10, na.rm = TRUE)
+global_max <- quantile(all_values, 0.90, na.rm = TRUE)
+
+# ============================================================
+# Global-scale FeaturePlots
+# ============================================================
+for (stage in names(objs)) {
+  obj <- objs[[stage]]
+  message("Plotting MT GO terms for ", stage)
+  
+  for (pathway_name in names(mt_pathways)) {
+    present <- mt_pathways[[pathway_name]]
+    present <- present[present %in% rownames(obj[["RNA"]])]
+    if (length(present) == 0) next
+    
+    plots <- FeaturePlot(
+      obj,
+      features = present,
+      reduction = "umap",
+      min.cutoff = global_min,
+      max.cutoff = global_max,
+      combine = FALSE
+    )
+    
+    print(
+      wrap_plots(plots) +
+        plot_annotation(title = paste(pathway_name, "—", stage))
+    )
+  }
+}
+
+
+
+
+
+
+
+library(Seurat)
+library(patchwork)
+
+# ============================================================
+# 1. Add module scores for each pathway
+# ============================================================
+for (stage in names(objs)) {
+  obj <- objs[[stage]]
+  
+  for (pathway_name in names(mt_pathways)) {
+    genes <- mt_pathways[[pathway_name]]
+    genes <- genes[genes %in% rownames(obj[["RNA"]])]
+    if (length(genes) == 0) next
+    
+    # limit number of genes to avoid sampling issues (optional)
+    # genes <- sample(genes, min(50, length(genes)))
+    
+    obj <- AddModuleScore(
+      obj,
+      features = list(genes),
+      name = pathway_name,
+      ctrl = min(100, nrow(obj) - length(genes))
+    )
+  }
+  
+  objs[[stage]] <- obj
+}
+
+# ============================================================
+# 2. Compute global min/max across stages for all module scores
+# ============================================================
+all_values <- c()
+for (stage in names(objs)) {
+  obj <- objs[[stage]]
+  
+  # Module scores are added as "pathway_name1", "pathway_name2", etc.
+  score_cols <- grep(paste(names(mt_pathways), collapse = "|"), colnames(obj[[]]), value = TRUE)
+  
+  all_values <- c(all_values, unlist(obj[[score_cols]]))
+}
+
+global_min <- quantile(all_values, 0.10, na.rm = TRUE)
+global_max <- quantile(all_values, 0.90, na.rm = TRUE)
+
+# ============================================================
+# 3. Plot all GO terms on a single UMAP per stage
+# ============================================================
+for (stage in names(objs)) {
+  obj <- objs[[stage]]
+  message("Plotting MT GO term module scores for ", stage)
+  
+  score_cols <- grep(paste(names(mt_pathways), collapse = "|"), colnames(obj[[]]), value = TRUE)
+  
+  plots <- FeaturePlot(
+    obj,
+    features = score_cols,
+    reduction = "umap",
+    min.cutoff = global_min,
+    max.cutoff = global_max,
+    combine = FALSE
+  )
+  
+  print(
+    wrap_plots(plots) +
+      plot_annotation(title = paste("MT GO Term Module Scores —", stage))
+  )
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# 7. Module score using ONLY genes present
+# ============================================================
+# ============================================================
+# 7. Compute module scores for all objects
+# ============================================================
+
+mt_scores_min <- Inf
+mt_scores_max <- -Inf
+
+# First pass: compute module scores + track global min/max
+for (stage in names(objs)) {
+  obj <- objs[[stage]]
+  message("Computing MT module score for ", stage)
+  
+  # ENSURE only genes present are used
+  mt_present <- intersect(go_mt_genes, rownames(obj[["RNA"]]))
+  
+  if (length(mt_present) < 5) {
+    message("Skipping ", stage, " — only ", length(mt_present), " genes present.")
+    next
+  }
+  
+  message("Using ", length(mt_present), " MT genes")
+  
+  # Compute module score with safe settings
+  obj <- AddModuleScore(
+    object = obj,
+    features = list(mt_present),
+    name = "MTcyto",
+    nbin = 1,
+    ctrl = 5,
+    search = FALSE
+  )
+  
+  # Store updated object
+  objs[[stage]] <- obj
+  
+  # Track global min/max
+  stage_values <- obj$MTcyto1
+  mt_scores_min <- min(mt_scores_min, min(stage_values, na.rm = TRUE))
+  mt_scores_max <- max(mt_scores_max, max(stage_values, na.rm = TRUE))
+}
+
+message("GLOBAL MTcyto1 RANGE ACROSS ALL STAGES:")
+message("min = ", mt_scores_min)
+message("max = ", mt_scores_max)
+
+
+# ============================================================
+# 8. Plot with the SAME COLOR SCALE for all stages
+# ============================================================
+
+for (stage in names(objs)) {
+  obj <- objs[[stage]]
+  message("Plotting with unified MT module score scale for ", stage)
+  
+  p <- FeaturePlot(
+    obj,
+    features = "MTcyto1",
+    reduction = "umap",
+    cols = c("lightgray", "red"),
+    min.cutoff = mt_scores_min,
+    max.cutoff = mt_scores_max
+  ) + ggtitle(paste("MT Cytoskeleton Module Score —", stage,
+                    "(Unified Color Scale)"))
+  
+  print(p)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# 9. Identify significantly changed microtubule genes
+# ============================================================
+
+message("Merging all stages into one Seurat object…")
+combined <- merge(
+  objs[[1]],
+  objs[2:length(objs)],
+  add.cell.ids = names(objs)
+)
+
+# Recalculate stage identities (should already exist)
+Idents(combined) <- combined$stage
+
+# Prepare microtubule gene list
+mt_all <- unique(c(go_mt_genes, tubb_genes))
+mt_all_present <- mt_all[mt_all %in% rownames(combined)]
+
+message("Microtubule genes present in dataset: ", length(mt_all_present))
+
+# Run DE across all stages only on MT genes
+message("Running stage-specific DE for all MT genes…")
+
+mt_markers <- FindAllMarkers(
+  combined,
+  features = mt_all_present,
+  only.pos = FALSE,
+  logfc.threshold = 0,
+  test.use = "wilcox"
+)
+
+# Filter to keep only statistically significant MT genes
+sig_mt <- mt_markers |>
+  dplyr::filter(p_val_adj < 0.05 & abs(avg_log2FC) > 0.25)
+
+message("Significant MT genes across stages: ", nrow(sig_mt))
+
+# Print top results
+print(head(sig_mt, 20))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Initialize min/max
+mt_scores_min <- Inf
+mt_scores_max <- -Inf
+
+for (stage in names(objs)) {
+  obj <- objs[[stage]]
+  
+  mt_present <- intersect(go_mt_genes, rownames(obj[["RNA"]]))
+  
+  if (length(mt_present) < 5) {
+    message("Skipping ", stage, " — only ", length(mt_present), " genes present.")
+    next
+  }
+  
+  message("Computing MT module score for ", stage, " using ", length(mt_present), " genes")
+  
+  # Add module score
+  obj <- AddModuleScore(
+    object = obj,
+    features = list(mt_present),
+    name = "MTcyto",
+    nbin = 1,       # use 1 bin (no control gene binning)
+    ctrl = 5,
+    search = FALSE
+  )
+  
+  # Save back
+  objs[[stage]] <- obj
+  
+  # Track global min/max
+  stage_values <- obj$MTcyto1
+  mt_scores_min <- min(mt_scores_min, min(stage_values, na.rm = TRUE))
+  mt_scores_max <- max(mt_scores_max, max(stage_values, na.rm = TRUE))
+}
+
+message("GLOBAL MT module score range across all stages:")
+message("min = ", mt_scores_min)
+message("max = ", mt_scores_max)
+
+
+for (stage in names(objs)) {
+  obj <- objs[[stage]]
+  message("Plotting MT module score for ", stage)
+  
+  p <- FeaturePlot(
+    obj,
+    features = "MTcyto1",
+    reduction = "umap",
+    cols = c("lightgray", "red"),
+    min.cutoff = mt_scores_min,
+    max.cutoff = mt_scores_max
+  ) +
+    ggtitle(paste("MT Cytoskeleton Module Score —", stage,
+                  "(Unified Global Scale)"))
+  
+  print(p)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+for (stage in names(objs)) {
+  cat("\n===== ", stage, " metadata columns =====\n")
+  print(colnames(objs[[stage]]@meta.data))
+}
+
+
+
+
