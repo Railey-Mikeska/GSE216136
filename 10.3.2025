@@ -1,7 +1,3 @@
-
-
-
-
 # ============================================================
 # Load libraries
 # ============================================================
@@ -51,20 +47,13 @@ load_and_update <- function(file, stage) {
 objs <- mapply(load_and_update, files, stages, SIMPLIFY = FALSE)
 names(objs) <- stages
 
-
 # ============================================================
-# 3. Define tubulin gene set
+# 3. Define tubulin and microtubule cytoskeleton (GO:0005874) gene sets
 # ============================================================
 tubb_genes <- c("Tubb1","Tubb2a","Tubb2b","Tubb3","Tubb4a","Tubb5","Tubb6")
 
-
-
 tuba_genes <- c("Tuba1a","Tuba1b","Tuba1c","Tuba3a","Tuba3b", "Tuba4a", "Tuba8")
 
-
-# ============================================================
-# 4. Get microtubule cytoskeleton GO genes (GO:0005874)
-# ============================================================
 go_mt <- AnnotationDbi::select(
   org.Mm.eg.db,
   keys = "GO:0005874",
@@ -74,242 +63,6 @@ go_mt <- AnnotationDbi::select(
 
 go_mt_genes <- unique(go_mt$SYMBOL)
 cat("Total MT cytoskeleton genes:", length(go_mt_genes), "\n")
-
-
-
-
-
-
-# ============================================================
-# 4. Compute GLOBAL min/max across all stages for TUBB genes
-# ============================================================
-
-all_values <- c()
-
-for (stage in names(objs)) {
-  obj <- objs[[stage]]
-  
-  present <- tubb_genes[tubb_genes %in% rownames(obj[["RNA"]])]
-  if (length(present) == 0) next
-  
-  vals <- FetchData(obj, vars = present)
-  vals_num <- as.numeric(as.matrix(vals))  # FIX
-  
-  all_values <- c(all_values, vals_num)
-}
-
-global_min <- quantile(all_values, 0.10, na.rm = TRUE)
-global_max <- quantile(all_values, 0.90, na.rm = TRUE)
-
-
-# ============================================================
-# 5B. Plot TUBB genes — GLOBAL color scale
-# ============================================================
-for (stage in names(objs)) {
-  obj <- objs[[stage]]
-  message("Plotting TUBB genes for ", stage)
-  
-  present <- tubb_genes[tubb_genes %in% rownames(obj[["RNA"]])]
-  if (length(present) == 0) next
-  
-  plots <- FeaturePlot(
-    obj,
-    features = present,
-    reduction = "umap",
-    min.cutoff = global_min,
-    max.cutoff = global_max,
-    combine = FALSE
-  )
-  
-  print(
-    wrap_plots(plots) +
-      plot_annotation(title = paste("TUBB Family Expression —", stage))
-  )
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# ============================================================
-# 4. Compute GLOBAL min/max for all TUBA genes across all stages
-# ============================================================
-
-all_values <- c()
-
-for (stage in names(objs)) {
-  obj <- objs[[stage]]
-  
-  present <- tuba_genes[tuba_genes %in% rownames(obj[["RNA"]])]
-  if (length(present) == 0) next
-  
-  vals <- FetchData(obj, vars = present)
-  
-  # --- FIX: ensure numeric (avoid "list cannot be coerced" error) ---
-  vals_num <- as.numeric(as.matrix(vals))
-  
-  all_values <- c(all_values, vals_num)
-}
-
-global_min <- quantile(all_values, 0.10, na.rm = TRUE)
-global_max <- quantile(all_values, 0.90, na.rm = TRUE)
-
-
-
-
-
-
-
-# ============================================================
-# 5. Global-scale plotting
-# ============================================================
-for (stage in names(objs)) {
-  obj <- objs[[stage]]
-  message("Plotting TUBA genes for ", stage)
-  
-  present <- tuba_genes[tuba_genes %in% rownames(obj[["RNA"]])]
-  if (length(present) == 0) next
-  
-  plots <- FeaturePlot(
-    obj,
-    features = present,
-    reduction = "umap",
-    min.cutoff = global_min,
-    max.cutoff = global_max,
-    combine = FALSE
-  )
-  
-  print(
-    wrap_plots(plots) +
-      plot_annotation(title = paste("TUBA Family Expression —", stage))
-  )
-}
-
-
-
-
-
-
-
-
-
-#---
-# Combined genes in GO terms
-#---
-
-library(Seurat)
-library(patchwork)
-
-for (stage in names(objs)) {
-  
-  obj <- objs[[stage]]
-  message("Plotting combined MT GO score for ", stage)
-  
-  mt_present <- go_mt_genes[go_mt_genes %in% rownames(obj[["RNA"]])]
-  
-  if (length(mt_present) == 0) {
-    message("No MT GO genes in ", stage)
-    next
-  }
-  
-  mt_to_plot <- head(mt_present, 16)
-  
-  # Add averaged module score
-  obj <- AddModuleScore(
-    obj,
-    features = list(mt_to_plot),
-    name = "MT_GO"
-  )
-  
-  # Plot the combined score
-  p <- FeaturePlot(
-    obj,
-    features = "MT_GO1",
-    reduction = "umap",
-    min.cutoff = "q10",
-    max.cutoff = "q90"
-  ) +
-    ggtitle(paste("Microtubule GO Activity (Top 16) —", stage))
-  
-  print(p)
-  
-  objs[[stage]] <- obj  # save back
-}
-
-
-
-
-
-
-
-
-
-
-
-
-# ============================================================
-# 6. Plot MT GO genes (top 16) for each stage
-# ============================================================
-for (stage in names(objs)) {
-  
-  obj <- objs[[stage]]
-  message("Plotting GO:0005874 MT genes for ", stage)
-  
-  mt_present <- go_mt_genes[go_mt_genes %in% rownames(obj[["RNA"]])]
-  
-  if (length(mt_present) == 0) {
-    message("No MT GO genes in ", stage)
-    next
-  }
-  
-  mt_to_plot <- head(mt_present, 16)
-  
-  plots <- FeaturePlot(
-    obj,
-    features = mt_to_plot,
-    reduction = "umap",
-    min.cutoff = "q10",
-    max.cutoff = "q90",
-    combine = FALSE
-  )
-  
-  print(
-    wrap_plots(plots) +
-      plot_annotation(title = paste("Microtubule Cytoskeleton (GO:0005874) —", stage))
-  )
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -422,33 +175,132 @@ mt_pathways <- list(
 
 
 
-library(Seurat)
-library(patchwork)
 
-# Collect all module scores across stages to set global min/max
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# 4A. Compute GLOBAL min/max across all stages for TUBB genes
+# ============================================================
 all_values <- c()
 
 for (stage in names(objs)) {
   obj <- objs[[stage]]
   
-  for (pathway_name in names(mt_pathways)) {
-    present <- mt_pathways[[pathway_name]]
-    present <- present[present %in% rownames(obj[["RNA"]])]
-    if (length(present) == 0) next
-    
-    vals <- FetchData(obj, vars = present)
-    vals_num <- as.numeric(as.matrix(vals))
-    
-    all_values <- c(all_values, vals_num)
-  }
+  present <- tubb_genes[tubb_genes %in% rownames(obj[["RNA"]])]
+  if (length(present) == 0) next
+  
+  vals <- FetchData(obj, vars = present)
+  vals_num <- as.numeric(as.matrix(vals))  # FIX
+  
+  all_values <- c(all_values, vals_num)
 }
 
 global_min <- quantile(all_values, 0.10, na.rm = TRUE)
 global_max <- quantile(all_values, 0.90, na.rm = TRUE)
 
 # ============================================================
-# Global-scale FeaturePlots , Microtubule GO terms plotted across stages of dev
+# 4B. Plot TUBB genes — GLOBAL color scale
 # ============================================================
+for (stage in names(objs)) {
+  obj <- objs[[stage]]
+  message("Plotting TUBB genes for ", stage)
+  
+  present <- tubb_genes[tubb_genes %in% rownames(obj[["RNA"]])]
+  if (length(present) == 0) next
+  
+  plots <- FeaturePlot(
+    obj,
+    features = present,
+    reduction = "umap",
+    min.cutoff = global_min,
+    max.cutoff = global_max,
+    combine = FALSE
+  )
+  
+  print(
+    wrap_plots(plots) +
+      plot_annotation(title = paste("TUBB Family Expression —", stage))
+  )
+}
+
+# ============================================================
+# 5A. Compute GLOBAL min/max for all TUBA genes across all stages
+# ============================================================
+
+all_values <- c()
+
+for (stage in names(objs)) {
+  obj <- objs[[stage]]
+  
+  present <- tuba_genes[tuba_genes %in% rownames(obj[["RNA"]])]
+  if (length(present) == 0) next
+  
+  vals <- FetchData(obj, vars = present)
+  
+  # --- FIX: ensure numeric (avoid "list cannot be coerced" error) ---
+  vals_num <- as.numeric(as.matrix(vals))
+  
+  all_values <- c(all_values, vals_num)
+}
+
+global_min <- quantile(all_values, 0.10, na.rm = TRUE)
+global_max <- quantile(all_values, 0.90, na.rm = TRUE)
+
+
+# ============================================================
+# 5B. Global-scale plotting
+# ============================================================
+for (stage in names(objs)) {
+  obj <- objs[[stage]]
+  message("Plotting TUBA genes for ", stage)
+  
+  present <- tuba_genes[tuba_genes %in% rownames(obj[["RNA"]])]
+  if (length(present) == 0) next
+  
+  plots <- FeaturePlot(
+    obj,
+    features = present,
+    reduction = "umap",
+    min.cutoff = global_min,
+    max.cutoff = global_max,
+    combine = FALSE
+  )
+  
+  print(
+    wrap_plots(plots) +
+      plot_annotation(title = paste("TUBA Family Expression —", stage))
+  )
+}
+
+
+
+
+
+
+
+
+
 library(Seurat)
 
 for (stage in names(objs)) {
@@ -488,334 +340,5 @@ for (stage in names(objs)) {
   
   objs[[stage]] <- obj
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-library(ggplot2)
-library(dplyr)
-library(tidyr)
-
-for (stage in names(objs)) {
-  obj <- objs[[stage]]
-  
-  # extract UMAP embeddings and module scores
-  score_cols <- grep(paste(names(mt_pathways), collapse = "|"), colnames(obj[[]]), value = TRUE)
-  df <- as.data.frame(obj[[]])
-  df$UMAP_1 <- Embeddings(obj, "umap")[,1]
-  df$UMAP_2 <- Embeddings(obj, "umap")[,2]
-  
-  # pivot longer for ggplot
-  df_long <- df %>%
-    select(UMAP_1, UMAP_2, all_of(score_cols)) %>%
-    pivot_longer(cols = all_of(score_cols), names_to = "Pathway", values_to = "Score")
-  
-  # single plot with facets
-  p <- ggplot(df_long, aes(x = UMAP_1, y = UMAP_2, color = Score)) +
-    geom_point(size = 0.5) +
-    scale_color_viridis_c(option = "magma", limits = c(global_min, global_max)) +
-    facet_wrap(~Pathway) +
-    theme_classic() +
-    labs(title = paste("MT GO Term Module Scores —", stage))
-  
-  print(p)
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# ============================================================
-# 7. Module score using ONLY genes present
-# ============================================================
-# ============================================================
-# 7. Compute module scores for all objects
-# ============================================================
-
-mt_scores_min <- Inf
-mt_scores_max <- -Inf
-
-# First pass: compute module scores + track global min/max
-for (stage in names(objs)) {
-  obj <- objs[[stage]]
-  message("Computing MT module score for ", stage)
-  
-  # ENSURE only genes present are used
-  mt_present <- intersect(go_mt_genes, rownames(obj[["RNA"]]))
-  
-  if (length(mt_present) < 5) {
-    message("Skipping ", stage, " — only ", length(mt_present), " genes present.")
-    next
-  }
-  
-  message("Using ", length(mt_present), " MT genes")
-  
-  # Compute module score with safe settings
-  obj <- AddModuleScore(
-    object = obj,
-    features = list(mt_present),
-    name = "MTcyto",
-    nbin = 1,
-    ctrl = 5,
-    search = FALSE
-  )
-  
-  # Store updated object
-  objs[[stage]] <- obj
-  
-  # Track global min/max
-  stage_values <- obj$MTcyto1
-  mt_scores_min <- min(mt_scores_min, min(stage_values, na.rm = TRUE))
-  mt_scores_max <- max(mt_scores_max, max(stage_values, na.rm = TRUE))
-}
-
-message("GLOBAL MTcyto1 RANGE ACROSS ALL STAGES:")
-message("min = ", mt_scores_min)
-message("max = ", mt_scores_max)
-
-
-# ============================================================
-# 8. Plot with the SAME COLOR SCALE for all stages
-# ============================================================
-
-for (stage in names(objs)) {
-  obj <- objs[[stage]]
-  message("Plotting with unified MT module score scale for ", stage)
-  
-  p <- FeaturePlot(
-    obj,
-    features = "MTcyto1",
-    reduction = "umap",
-    cols = c("lightgray", "red"),
-    min.cutoff = mt_scores_min,
-    max.cutoff = mt_scores_max
-  ) + ggtitle(paste("MT Cytoskeleton Module Score —", stage,
-                    "(Unified Color Scale)"))
-  
-  print(p)
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# ============================================================
-# 9. Identify significantly changed microtubule genes
-# ============================================================
-
-message("Merging all stages into one Seurat object…")
-combined <- merge(
-  objs[[1]],
-  objs[2:length(objs)],
-  add.cell.ids = names(objs)
-)
-
-# Recalculate stage identities (should already exist)
-Idents(combined) <- combined$stage
-
-# Prepare microtubule gene list
-mt_all <- unique(c(go_mt_genes, tubb_genes))
-mt_all_present <- mt_all[mt_all %in% rownames(combined)]
-
-message("Microtubule genes present in dataset: ", length(mt_all_present))
-
-# Run DE across all stages only on MT genes
-message("Running stage-specific DE for all MT genes…")
-
-mt_markers <- FindAllMarkers(
-  combined,
-  features = mt_all_present,
-  only.pos = FALSE,
-  logfc.threshold = 0,
-  test.use = "wilcox"
-)
-
-# Filter to keep only statistically significant MT genes
-sig_mt <- mt_markers |>
-  dplyr::filter(p_val_adj < 0.05 & abs(avg_log2FC) > 0.25)
-
-message("Significant MT genes across stages: ", nrow(sig_mt))
-
-# Print top results
-print(head(sig_mt, 20))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Initialize min/max
-mt_scores_min <- Inf
-mt_scores_max <- -Inf
-
-for (stage in names(objs)) {
-  obj <- objs[[stage]]
-  
-  mt_present <- intersect(go_mt_genes, rownames(obj[["RNA"]]))
-  
-  if (length(mt_present) < 5) {
-    message("Skipping ", stage, " — only ", length(mt_present), " genes present.")
-    next
-  }
-  
-  message("Computing MT module score for ", stage, " using ", length(mt_present), " genes")
-  
-  # Add module score
-  obj <- AddModuleScore(
-    object = obj,
-    features = list(mt_present),
-    name = "MTcyto",
-    nbin = 1,       # use 1 bin (no control gene binning)
-    ctrl = 5,
-    search = FALSE
-  )
-  
-  # Save back
-  objs[[stage]] <- obj
-  
-  # Track global min/max
-  stage_values <- obj$MTcyto1
-  mt_scores_min <- min(mt_scores_min, min(stage_values, na.rm = TRUE))
-  mt_scores_max <- max(mt_scores_max, max(stage_values, na.rm = TRUE))
-}
-
-message("GLOBAL MT module score range across all stages:")
-message("min = ", mt_scores_min)
-message("max = ", mt_scores_max)
-
-
-for (stage in names(objs)) {
-  obj <- objs[[stage]]
-  message("Plotting MT module score for ", stage)
-  
-  p <- FeaturePlot(
-    obj,
-    features = "MTcyto1",
-    reduction = "umap",
-    cols = c("lightgray", "red"),
-    min.cutoff = mt_scores_min,
-    max.cutoff = mt_scores_max
-  ) +
-    ggtitle(paste("MT Cytoskeleton Module Score —", stage,
-                  "(Unified Global Scale)"))
-  
-  print(p)
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-for (stage in names(objs)) {
-  cat("\n===== ", stage, " metadata columns =====\n")
-  print(colnames(objs[[stage]]@meta.data))
-}
-
-
 
 
